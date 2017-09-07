@@ -95,9 +95,9 @@ function CurryUpdateResourceGroupVirtualMachineScaleSetsClosure {
 }
 
 #Main loop
+$updateSshKeyClosure = CurryUpdateResourceGroupVirtualMachineScaleSetsClosure $SshPublicKey
 while ($resourceGroupName) {
     Write-Host -ForegroundColor "Yellow" "Processing resource group '$resourceGroupName'"
-    $updateSshKeyClosure = CurryUpdateResourceGroupVirtualMachineScaleSetsClosure $SshPublicKey
     UpdateResourceGroup $ResourceGroupName $updateSshKeyClosure
     Write-Host -ForegroundColor "Yellow" "Finished processing resource group '$resourceGroupName'"
     $resourceGroupName = PromptedResourceGroupName
