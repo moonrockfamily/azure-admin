@@ -4,10 +4,7 @@ Param(
 	[string]$ResourceGroupName,
 
 	[Parameter(Mandatory=$True,Position=2,ValueFromPipelineByPropertyName=$true)]
-	[string]$SshPublicKey, 
-
-    [Parameter(Mandatory=$False, Position=3, ValueFromPipelineByPropertyName=$true)]
-    [boolean]$promptToLogin = $True
+	[string]$SshPublicKey
 )
 $ErrorActionPreference = ‘Stop’
 
@@ -28,38 +25,82 @@ function PromptedResourceGroupName() {
     return $Null
 }
 
-function SetSshPublicKeys {
+<#
+.SYNOPSIS
+    .
+.DESCRIPTION
+    .
+.PARAMETER scriptBlock
+    The script block will be invoked with a resource group name parameter.
+.EXAMPLE
+    <Description of example>
+.NOTES
+#>
+function UpdateResourceGroup {
 	Param(
-		[parameter(Mandatory=$true, Position=1, ValueFromPipelineByPropertyName=$true)]
-		[String]
-		$resourceGroupName,
+		[Parameter(Mandatory=$true, Position=1, ValueFromPipeline=$true, ValueFromPipelineByPropertyName=$true)]
+		[string]$resourceGroupName,
 
-	    [Parameter(Mandatory=$True,Position=2, ValueFromPipelineByPropertyName=$true)]
-	    [string]$sshPublicKey
+        [Parameter(Mandatory=$True, Position=3, ValueFromPipeline=$false, ValueFromPipelineByPropertyName=$true)]
+        [System.Management.Automation.ScriptBlock]$scriptBlock
     )
-    while ($resourceGroupName) {
-        try {
-            $rmVmssList = Get-AzureRmVmss -ResourceGroupName $resourceGroupName
-            foreach ($rmVmss in $rmVmssList) {
-                Add-AzureRmVmssSshPublicKey -VirtualMachineScaleSet $rmVmss -KeyData $sshPublicKey
+    try {
+        Get-AzureRmResourceGroup -Name $resourceGroupName
+        & $scriptBlock $resourceGroupName
+    } catch [System.Management.Automation.PSInvalidOperationException] {
+        if ($_.Exception.Message -Match ".*Login-AzureRmAccount.*") {
+            if (LoginAttempt -eq $null) {
+                // terminate 
+                Write-Error $_
             }
-            Write-Output "All Resource group '$resourceGroupName' Virtual Machine scale set VM's have been updated."
-            $resourceGroupName = PromptedResourceGroupName
-        } catch [System.Management.Automation.PSInvalidOperationException] {
-            if ($_.Exception.Message -Match ".*Login-AzureRmAccount.*") {
-                if (LoginAttempt -eq $null) {
-                    // terminate 
-                    $resourceGroupName = $null
-                }
-            }
-        } catch [Exception] {
-            if ($_.Exception.Message -Match ".*ResourceGroupNotFound.*") {
-                Write-Output "Resource group '$resourceGroupName' not found."
-                $resourceGroupName = PromptedResourceGroupName
-            }
+        } else {
+            Write-Error $_
         }
+    } catch [Exception] {
+        if ($_.Exception.Message -Match ".*(ResourceGroupNotFound|resource group does not exist).*") {
+            Write-Output "Resource group '$resourceGroupName' not found."
+        } else {
+			Write-Error $_
+		}
     }
 }
+function UpdateResourceGroupVirtualMachineScaleSets {
+    Param(
+		[parameter(Mandatory=$true, Position=1, ValueFromPipeline=$true, ValueFromPipelineByPropertyName=$true)]
+		[string]$resourceGroupName,
 
-SetSshPublicKeys $ResourceGroupName $SshPublicKey
+	    [Parameter(Mandatory=$True,Position=2, ValueFromPipeline=$true, ValueFromPipelineByPropertyName=$true)]
+	    [string]$sshPublicKey
+    )
+    $rmVmssList = Get-AzureRmVmss -ResourceGroupName $resourceGroupName
+    foreach ($rmVmss in $rmVmssList) {
+        $scaleSetId = $rmVmss.Id
+        Add-AzureRmVmssSshPublicKey -VirtualMachineScaleSet $rmVmss -KeyData $sshPublicKey
+        Write-Host -ForegroundColor "Yellow" "Finished setting SSH key for VM set '$scaleSetId'"
+    }
+}
+function CurryUpdateResourceGroupVirtualMachineScaleSetsClosure {
+    Param(
+	    [Parameter(Mandatory=$True,Position=2, ValueFromPipeline=$true, ValueFromPipelineByPropertyName=$true)]
+	    [string]$sshPublicKey
+    )
+
+    return {
+        Param(
+		    [parameter(Mandatory=$true, Position=1, ValueFromPipeline=$true, ValueFromPipelineByPropertyName=$true)]
+		    [string]$resourceGroupName
+        )
+        UpdateResourceGroupVirtualMachineScaleSets $resourceGroupName $sshPublicKey
+    }.GetNewClosure()
+}
+
+#Main loop
+while ($resourceGroupName) {
+    Write-Host -ForegroundColor "Yellow" "Processing resource group '$resourceGroupName'"
+    $updateSshKeyClosure = CurryUpdateResourceGroupVirtualMachineScaleSetsClosure $SshPublicKey
+    UpdateResourceGroup $ResourceGroupName $updateSshKeyClosure
+    Write-Host -ForegroundColor "Yellow" "Finished processing resource group '$resourceGroupName'"
+    $resourceGroupName = PromptedResourceGroupName
+}
+
 
