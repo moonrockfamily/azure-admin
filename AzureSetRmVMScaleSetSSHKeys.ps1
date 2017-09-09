@@ -6,7 +6,7 @@ Param(
 	[Parameter(Mandatory=$True,Position=2,ValueFromPipelineByPropertyName=$true)]
 	[string]$SshPublicKey
 )
-$ErrorActionPreference = ‘Stop’
+$ErrorActionPreference = "Stop"
 
 function LoginAttempt() {
     $confirmation = Read-Host "Do you want to login to your Azure Resource Manager account?"
